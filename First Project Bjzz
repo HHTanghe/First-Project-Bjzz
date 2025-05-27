@@ -1,0 +1,145 @@
+
+Sub TwoStageKeywordSearch()
+    On Error GoTo ErrorHandler
+    Application.ScreenUpdating = False
+    
+    ' █ 用户交互选择列
+    Dim keyRange As Range
+    Set keyRange = Application.InputBox("请选择关键字所在列（整列）", "关键字列选择", Type:=8)
+    If keyRange Is Nothing Then Exit Sub
+    
+    Dim dataRange As Range
+    Set dataRange = Application.InputBox("请选择需要分析的文本列（整列）", "数据列选择", Type:=8)
+    If dataRange Is Nothing Then Exit Sub
+    
+    ' █ 创建字典存储去重关键字
+    Dim dict As Object
+    Set dict = CreateObject("Scripting.Dictionary")
+    dict.CompareMode = vbTextCompare  ' 不区分大小写‌:ml-citation{ref="1" data="citationList"}
+    For Each cell In keyRange.Columns(1).Cells
+        If Len(Trim(cell.Value)) > 0 Then
+            dict(Trim(cell.Value)) = 1
+        End If
+    Next
+    
+    ' █ 插入结果列
+    dataRange.Offset(0, 1).EntireColumn.Insert
+    dataRange.Offset(0, 1).Value = "匹配结果"
+    
+    ' █ 分阶段匹配逻辑
+    Dim lastRow As Long, i As Long, txt As String
+    lastRow = dataRange.Cells(dataRange.Rows.Count, 1).End(xlUp).Row
+    
+    For i = 2 To lastRow
+        txt = dataRange.Cells(i, 1).Value
+        
+        ' 第一阶段：前60字符匹配
+        Dim firstPart As String, result As String
+        firstPart = Left(txt, 85)
+        result = ExtractKeywords(firstPart, dict)
+        
+        ' 第二阶段：最后40字符匹配（仅当第一阶段未找到时）
+        If Len(result) = 0 Then
+            Dim lastPart As String
+            lastPart = Right(txt, 40)
+            result = ExtractKeywords(lastPart, dict)
+        End If
+        
+        ' 写入结果列
+        dataRange.Cells(i, 1).Offset(0, 1).Value = result
+    Next i
+    
+    Application.ScreenUpdating = True
+    MsgBox "处理完成！结果生成在右侧列", vbInformation
+    Exit Sub
+    
+ErrorHandler:
+    MsgBox "发生错误：" & Err.Description, vbCritical
+    Application.ScreenUpdating = True
+End Sub
+
+Function ExtractKeywords(ByVal text As String, ByRef dict As Object) As String
+    Dim key As Variant, matches As String
+    For Each key In dict.Keys
+        If InStr(1, text, key, vbTextCompare) > 0 Then
+            If InStr(1, matches, key, vbTextCompare) = 0 Then
+                matches = matches & key & ","
+            End If
+        End If
+    Next
+    
+    ' 移除末尾逗号
+    If Len(matches) > 0 Then
+        ExtractKeywords = Left(matches, Len(matches) - 1)
+    Else
+        ExtractKeywords = ""
+    End If
+End Function
+
+
+
+
+
+Sub 标准化机构名称处理()
+    Dim inputCol As String, outputCol As String
+    Dim dict As Object, mappingDict As Object
+    Dim rng As Range, cell As Range
+    Dim arr, item, resultArr(), outputStr As String
+    
+    ' 设置机构名称映射关系?:ml-citation{ref="4,5" data="citationList"}
+    Set mappingDict = CreateObject("Scripting.Dictionary")
+    mappingDict("市场监督管理局") = "市场监管局"
+   
+    ' 可在此添加更多映射关系
+    
+    ' 获取用户选择的列?:ml-citation{ref="3" data="citationList"}
+    inputCol = UCase(InputBox("请输入数据所在列(如A、B等)：", "输入列选择"))
+    If inputCol = "" Then Exit Sub
+    
+    outputCol = UCase(InputBox("请输入输出列(如B、C等)：", "输出列选择"))
+    If outputCol = "" Then Exit Sub
+    
+    Set dict = CreateObject("Scripting.Dictionary")
+    
+    On Error Resume Next
+    Set rng = Columns(inputCol & ":" & inputCol).SpecialCells(xlCellTypeConstants)
+    On Error GoTo 0
+    
+    If rng Is Nothing Then
+        MsgBox "所选列无数据！"
+        Exit Sub
+    End If
+    
+    For Each cell In rng
+        dict.RemoveAll
+        ' 处理中英文逗号分隔?:ml-citation{ref="3" data="citationList"}
+        arr = Split(Replace(cell.Value, "，", ","), ",")
+        
+        For Each item In arr
+            item = Trim(item)
+            If item <> "" Then
+                ' 标准化机构名称?:ml-citation{ref="4,5" data="citationList"}
+                If mappingDict.exists(item) Then
+                    item = mappingDict(item)
+                End If
+                ' 去重处理?:ml-citation{ref="2" data="citationList"}
+                If Not dict.exists(item) Then
+                    dict.Add item, 1
+                End If
+            End If
+        Next
+        
+        ' 生成结果字符串
+        outputStr = ""
+        resultArr = dict.keys
+        If UBound(resultArr) >= 0 Then
+            outputStr = Join(resultArr, ",")
+        End If
+        
+        ' 写入输出列?:ml-citation{ref="3" data="citationList"}
+        Range(outputCol & cell.Row).Value = outputStr
+    Next
+    
+    MsgBox "处理完成！共处理" & rng.Count & "行数据。"
+End Sub
+
